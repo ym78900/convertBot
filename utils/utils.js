@@ -30,7 +30,11 @@ const convertFile = async (fileName, chatId, subtitleTrackId, audioTrackId, bot)
             ]);
             videoConversion.on('close', (c) => {
                 if(c === 0) {
-                    bot.sendVideo(chatId, `./${fileName}.mp4`)
+                    bot.sendVideo(chatId, `./${fileName}.mp4`).then(() => {
+                        deleteFile(`./${fileName}`);
+                        deleteFile(`./${fileName}.mp4`);
+                        deleteFile(`./${fileName}.srt`);
+                    })
                 }
             })
         }
