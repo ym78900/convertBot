@@ -59,6 +59,8 @@ const convertFile = async (fileName, chatId, subtitleTrackId, audioTrackId, bot)
                 if(c === 0) {
                     bot.editMessageText('Sending video...', {chat_id: chatId, message_id: progressMessageId} );
                     bot.sendVideo(chatId, `./${fileName}.mp4`).then(() => {
+                        videoDurationInSeconds = null;
+                        progressMessageId = null;
                         deleteFile(`./${fileName}`);
                         deleteFile(`./${fileName}.mp4`);
                         deleteFile(`./${fileName}.srt`);
