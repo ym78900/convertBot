@@ -2,9 +2,6 @@ const { exec: execution, spawn } = require("child_process");
 const ffmpegPath = require("@ffmpeg-installer/ffmpeg").path;
 const fs = require("fs");
 const axios = require("axios");
-const { promisify } = require("util");
-const { message } = require("telegraf/filters");
-const pipeline = promisify(require("stream").pipeline);
 
 const convertFile = async (
   fileName,
@@ -17,7 +14,7 @@ const convertFile = async (
   bot.sendMessage(chatId, "converting...");
   // ffmpeg.setFfmpegPath(ffmpegPath);
   // extract the selected subtitle track
-  const subtitleProcess = spawn(ffmpegPath, [
+  spawn(ffmpegPath, [
     "-i",
     `./${fileName}`,
     "-map",
@@ -25,101 +22,30 @@ const convertFile = async (
     `./${fileName}.srt`,
   ]);
 
-  subtitleProcess.on("close", (code) => {
-    if (code === 0) {
-      const videoConversion = spawn(ffmpegPath, [
-        "-i",
-        `./${fileName}`,
-        "-map",
-        "0:0",
-        "-map",
-        `0:${audioTrackId}`,
-        "-vf",
-        `subtitles=./${fileName}.srt:si=0`,
-        "-c:v",
-        "libx264",
-        "-c:a",
-        "copy",
-        `./${fileName}.mp4`, // if you don't want to stream the data while converting, use this
-      ]);
+  const conversion = spawn(ffmpegPath, [
+    "-i",
+    `./${fileName}`,
+    "-map",
+    "0:0",
+    "-map",
+    `0:${audioTrackId}`,
+    "-vf",
+    `subtitles=./${fileName}.srt:si=0`,
+    "-c:v",
+    "libx264",
+    "-c:a",
+    "copy",
+    `./${fileName}.mp4`, // if you don't want to stream the data while converting, use this
+  ]);
 
-      // Get the video duration
-      let videoDurationInSeconds = null;
-      videoConversion.stderr.on("data", (data) => {
-        const str = data.toString();
-        const match = str.match(/Duration:\s*([\d:.]+)/);
-        if (match) {
-          const timeString = match[1];
-          videoDurationInSeconds = convertTimeStringToSeconds(timeString);
-        }
-      });
-
-      // Update progress percentage
-      videoConversion.stderr.on("data", (data) => {
-        const str = data.toString();
-        const match = str.match(/time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
-        if (match && videoDurationInSeconds) {
-          const hours = parseInt(match[1], 10);
-          const minutes = parseInt(match[2], 10);
-          const seconds = parseInt(match[3], 10);
-          const currentTimeInSeconds = hours * 60 * 60 + minutes * 60 + seconds;
-          const percentage = Math.floor(
-            (currentTimeInSeconds / videoDurationInSeconds) * 100
-          );
-          // bot.sendMessage(chatId, `File conversion progress: ${percentage}%`);
-          updateProgress(chatId, percentage, bot);
-        }
-      });
-
-      videoConversion.on("close", (c) => {
-        if (c === 0) {
-          bot.editMessageText("Sending video...", {
-            chat_id: chatId,
-            message_id: progressMessageId,
-          });
-          bot.sendVideo(chatId, `./${fileName}.mp4`).then(() => {
-            videoDurationInSeconds = null;
-            progressMessageId = null;
-            deleteFile(`./${fileName}`);
-            deleteFile(`./${fileName}.mp4`);
-            deleteFile(`./${fileName}.srt`);
-          });
-        }
-      });
-    }
+  conversion.on("close", (c) => {
+    console.log("show me", c);
+    bot.sendVideo(chatId, `./${fileName}.mp4`).then(() => {
+      deleteFile(`./${fileName}`);
+      deleteFile(`./${fileName}.mp4`);
+      deleteFile(`./${fileName}.srt`);
+    });
   });
-};
-
-let progressMessageId; // variable to store the ID of the progress message
-const updateProgress = (chatId, percentage, bot) => {
-  const message = `progress: ${percentage}`;
-  console.log(progressMessageId);
-  if (progressMessageId) {
-    // if progress message already sent, update it
-    bot
-      .editMessageText(message, {
-        chat_id: chatId,
-        message_id: progressMessageId,
-      })
-      .then((editedMessage) => {
-        console.log(editedMessage.text);
-      });
-  } else {
-    // if progress message not sent, send new message and store the message ID
-    bot
-      .sendMessage(chatId, message, { parse_mode: "HTML" })
-      .then((sentMessage) => {
-        progressMessageId = sentMessage.message_id;
-      });
-  }
-};
-
-const convertTimeStringToSeconds = (timeString) => {
-  const parts = timeString.split(":");
-  const hours = parseInt(parts[0], 10);
-  const minutes = parseInt(parts[1], 10);
-  const seconds = parseFloat(parts[2], 10);
-  return hours * 60 * 60 + minutes * 60 + seconds;
 };
 
 const deleteFile = (filePath) => {
@@ -224,11 +150,67 @@ const downloadFile = async (fileUrl, fileName) => {
     });
     // Save the file to disk
     response.data.pipe(fs.createWriteStream(`${fileName}`));
-
   } catch (error) {
     console.error("Error downloading file:", error);
     // Handle the error and notify your Telegram bot here
   }
+};
+
+const downloadFileAndUploadToS3 = async (
+  fileUrl,
+  fileName,
+  chatId,
+  bot,
+  s3
+) => {
+  return new Promise(async (resolve, reject) => {
+    let url = `https://${process.env.BUCKET_NAME}.s3.${process.env.REGION}.amazonaws.com/${fileName}`;
+    try {
+      const params = {
+        Bucket: process.env.BUCKET_NAME,
+        Key: fileName,
+      };
+      // Get the URL of the file in S3
+      await bot.sendMessage(chatId, "Downloading file ...");
+      s3.headObject(params, async (err, data) => {
+        if (err && err.code === "NotFound") {
+          // Movie file does not exist, proceed with uploading
+          // Upload the movie file to your S3 bucket
+          const response = await axios({
+            method: "GET",
+            url: fileUrl,
+            responseType: "stream",
+          });
+          const uploadParams = {
+            Bucket: process.env.BUCKET_NAME,
+            Key: fileName,
+            Body: response.data, // Buffer or stream of the movie file
+          };
+          s3.upload(uploadParams, (err, data) => {
+            if (err) {
+              console.log("Error uploading file to S3:", err);
+              url = null;
+            } else {
+              bot.sendMessage(chatId, "File uploaded successfully!");
+              console.log("File uploaded successfully:", data.Location);
+              url = data.Location;
+            }
+          });
+        } else if (err) {
+          // An error occurred while checking the object
+          console.log("Error checking object:", err);
+          url = null;
+        } else {
+          // Movie file already exists in the bucket
+          bot.sendMessage(chatId, "File already exist in our storage!");
+        }
+      });
+    } catch (error) {
+      console.error("Error downloading file:", error);
+      // Handle the error and notify your Telegram bot here
+    }
+    resolve(url);
+  });
 };
 
 module.exports = {
