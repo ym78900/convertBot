@@ -1,4 +1,4 @@
-const {convertFile, sendSubtitleSelection, sendAudioSelection, extractTracks} = require("./utils/utils");
+const {convertFile, sendSubtitleSelection, sendAudioSelection, extractTracks, getSubtitleLanguages, getSubtitleTracks} = require("./utils/utils");
 const axios = require("axios");
 const fs = require('fs');
 require('dotenv').config();
@@ -21,6 +21,7 @@ bot.on('message', async (msg) => {
             });
             // Save the file to disk
             response.data.pipe(fs.createWriteStream(`${fileName}`));
+
             // Get the available subtitle and audio tracks for the file
             const {audioTracks, subtitleTracks} = await extractTracks(`./${fileName}`);
             const selectedSubtitleId = await sendSubtitleSelection(chatId, subtitleTracks, bot);
