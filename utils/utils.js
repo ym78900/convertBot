@@ -1,7 +1,10 @@
 const { exec: execution, spawn } = require("child_process");
 const ffmpegPath = require("@ffmpeg-installer/ffmpeg").path;
-const ffmpeg = require("fluent-ffmpeg");
 const fs = require("fs");
+const axios = require("axios");
+const { promisify } = require("util");
+const { message } = require("telegraf/filters");
+const pipeline = promisify(require("stream").pipeline);
 
 const convertFile = async (
   fileName,
@@ -89,7 +92,7 @@ const convertFile = async (
 
 let progressMessageId; // variable to store the ID of the progress message
 const updateProgress = (chatId, percentage, bot) => {
-  const message = `File conversion progress: ${percentage}`;
+  const message = `progress: ${percentage}`;
   console.log(progressMessageId);
   if (progressMessageId) {
     // if progress message already sent, update it
@@ -134,7 +137,6 @@ const deleteFile = (filePath) => {
 async function extractTracks(file) {
   const command = `mkvmerge --identification-format json --identify ${file}`;
   const result = await execPromise(command);
-  console.log(result);
   // Process the output to extract track IDs and languages
   const allTracks = JSON.parse(result).tracks;
   const subtitleTracks = allTracks
@@ -148,7 +150,6 @@ async function extractTracks(file) {
     .filter((tr) => tr.type === "audio")
     .map((item) => ({ trackId: item.id, language: item.properties.language }));
 
-  console.log(audioTracks, subtitleTracks);
   return { audioTracks, subtitleTracks };
 }
 
@@ -214,9 +215,26 @@ function execPromise(command) {
   });
 }
 
+const downloadFile = async (fileUrl, fileName) => {
+  try {
+    const response = await axios({
+      method: "GET",
+      url: fileUrl,
+      responseType: "stream",
+    });
+    // Save the file to disk
+    response.data.pipe(fs.createWriteStream(`${fileName}`));
+
+  } catch (error) {
+    console.error("Error downloading file:", error);
+    // Handle the error and notify your Telegram bot here
+  }
+};
+
 module.exports = {
   convertFile,
   extractTracks,
   sendAudioSelection,
   sendSubtitleSelection,
+  downloadFile,
 };

@@ -3,6 +3,7 @@ const {
   sendSubtitleSelection,
   sendAudioSelection,
   extractTracks,
+  downloadFile,
 } = require("./utils/utils");
 const axios = require("axios");
 const fs = require("fs");
@@ -19,13 +20,9 @@ bot.on("message", async (msg) => {
       const fileInfo = await bot.getFile(msg.document.file_id);
       const fileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${fileInfo.file_path}`;
       // Download the file using axios
-      const response = await axios({
-        method: "GET",
-        url: fileUrl,
-        responseType: "stream",
-      });
-      // Save the file to disk
-      response.data.pipe(fs.createWriteStream(`${fileName}`));
+      await bot.sendMessage(chatId, "Downloading file ...");
+      await downloadFile(fileUrl, fileName, chatId, bot);
+      await bot.sendMessage(chatId, "File is downloaded!");
 
       // Get the available subtitle and audio tracks for the file
       const { audioTracks, subtitleTracks } = await extractTracks(
